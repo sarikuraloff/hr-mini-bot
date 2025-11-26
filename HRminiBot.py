@@ -1,6 +1,6 @@
-# HRminiBot_PRO_final.py
-# Полностью обновлённый HRminiBot PRO (aiogram v3 compatible)
-# Замените BOT_TOKEN и ADMIN_IDS перед запуском.
+# HRminiBot_WITH_ACCESS.py
+# Полностью обновлённый HRminiBot PRO с поддержкой запроса доступа (/access -> админ подтверждает)
+# Вставь свой BOT_TOKEN и при необходимости поправь ADMIN_IDS (по умолчанию - твой ID).
 
 import asyncio
 import json
@@ -22,14 +22,15 @@ from openpyxl import Workbook
 import calendar
 
 # ============== CONFIG ==============
-BOT_TOKEN = "8579881937:AAGX0oiDtE-uTx2zRdkWjsrD4N46oexG80E"
-ADMIN_IDS = [880339036]  # <-- добавь свой Telegram ID(ы) сюда
+BOT_TOKEN = "8579881937:AAGX0oiDtE-uTx2zRdkWjsrD4N46oexG80E"  # замените на ваш токен
+ADMIN_IDS = [880339036]  # только ты как админ
 
 bot = Bot(BOT_TOKEN)
 dp = Dispatcher()
 
 HISTORY_FILE = "history.json"
 EMPLOYEES_FILE = "employees.json"
+ALLOWED_USERS_FILE = "allowed_users.json"
 
 # in-memory state
 USER_STATE: Dict[int, Optional[str]] = {}
@@ -149,6 +150,17 @@ def load_employees():
 
 def save_employees(elist):
     save_json(EMPLOYEES_FILE, elist)
+
+# ============== Allowed users helpers ==============
+def load_allowed_users():
+    return load_json(ALLOWED_USERS_FILE, [])
+
+def save_allowed_users(lst):
+    save_json(ALLOWED_USERS_FILE, lst)
+
+def is_allowed(uid: int) -> bool:
+    allowed = load_allowed_users()
+    return uid in allowed or uid in ADMIN_IDS
 
 # ============== Date parsing & suggestions ==============
 def parse_date_try(s: str) -> Optional[str]:
@@ -363,13 +375,52 @@ async def cmd_start(msg: Message):
     user_lang.setdefault(uid, "ru")
     USER_STATE[uid] = None
     USER_DATA[uid] = {}
+    # Если не разрешён — показываем подсказку и команду /access
+    if not is_allowed(uid):
+        await msg.answer(
+            "❌ У вас нет доступа к этому боту.\n\n"
+            "Чтобы запросить доступ, отправьте команду:\n"
+            "/access"
+        )
+        return
     await msg.answer(L(uid, "hello"), reply_markup=main_menu(uid))
+
+@dp.message(Command(commands=["access"]))
+async def cmd_access(msg: Message):
+    uid = msg.from_user.id
+    username = msg.from_user.username or msg.from_user.full_name or str(uid)
+
+    if is_allowed(uid):
+        await msg.answer("✔ У вас уже есть доступ.")
+        return
+
+    # Отправляем уведомление всем администраторам
+    for admin in ADMIN_IDS:
+        try:
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="✅ Разрешить доступ", callback_data=f"grant:{uid}")],
+                [InlineKeyboardButton(text="❌ Отклонить", callback_data=f"deny:{uid}")]
+            ])
+            await bot.send_message(
+                admin,
+                f"📨 Запрос доступа\n\nПользователь: @{username}\nID: {uid}\n\nРазрешить доступ?",
+                reply_markup=kb
+            )
+        except Exception as e:
+            # если не получилось отправить админу, продолжаем
+            print("Notify admin error:", e)
+    await msg.answer("Ваш запрос отправлен администратору. Ждите ответа.")
 
 @dp.message()
 async def main_handler(msg: Message):
     uid = msg.from_user.id
     text = (msg.text or "").strip()
     user_lang.setdefault(uid, "ru")
+
+    # Блокируем всех НЕ разрешённых при любом сообщении (кроме /access handled above)
+    if not is_allowed(uid):
+        await msg.answer("❌ Вам запрещено пользоваться этим ботом. Отправьте /access чтобы запросить доступ.")
+        return
 
     # MAIN MENU ACTIONS
     if text == L(uid, "new_calc"):
@@ -407,7 +458,8 @@ async def main_handler(msg: Message):
             [InlineKeyboardButton(text="➕ Add employee", callback_data=f"admin:addemp:{uid}")],
             [InlineKeyboardButton(text="🧹 Clear employees", callback_data=f"admin:clearemps:{uid}")],
             [InlineKeyboardButton(text="🗑 Clear history", callback_data=f"admin:clearhist:{uid}")],
-            [InlineKeyboardButton(text="📤 Export Excel", callback_data=f"admin:export:{uid}")]
+            [InlineKeyboardButton(text="📤 Export Excel", callback_data=f"admin:export:{uid}")],
+            [InlineKeyboardButton(text="👥 Show allowed users", callback_data=f"admin:showallowed:{uid}")]
         ])
         await msg.answer("Admin panel:", reply_markup=kb)
         return
@@ -435,6 +487,38 @@ async def main_handler(msg: Message):
         USER_STATE[uid] = None
         USER_DATA[uid] = {}
         await msg.answer(L(uid, "emp_added"), reply_markup=main_menu(uid))
+        return
+
+    # ADMIN add/remove allowed user flows
+    if USER_STATE.get(uid) == "admin_add_allowed":
+        # admin typed ID to add
+        try:
+            new_id = int(text.strip())
+            users = load_allowed_users()
+            if new_id not in users:
+                users.append(new_id)
+                save_allowed_users(users)
+                await msg.answer(f"ID {new_id} добавлен в разрешённые.", reply_markup=main_menu(uid))
+            else:
+                await msg.answer("Этот ID уже в списке.")
+        except:
+            await msg.answer("Введите корректный числовой ID.")
+        USER_STATE[uid] = None
+        return
+
+    if USER_STATE.get(uid) == "admin_del_allowed":
+        try:
+            del_id = int(text.strip())
+            users = load_allowed_users()
+            if del_id in users:
+                users.remove(del_id)
+                save_allowed_users(users)
+                await msg.answer(f"ID {del_id} удалён из разрешённых.", reply_markup=main_menu(uid))
+            else:
+                await msg.answer("ID не найден.")
+        except:
+            await msg.answer("Введите корректный числовой ID.")
+        USER_STATE[uid] = None
         return
 
     # CALC FLOW
@@ -530,6 +614,46 @@ async def callback_handler(call: CallbackQuery):
     if data == "noop":
         await call.answer()
         return
+
+    # grant/deny handling (access requests)
+    if data.startswith("grant:") or data.startswith("deny:"):
+        # only admins can press these
+        if uid not in ADMIN_IDS:
+            await call.answer("Нет доступа", show_alert=True)
+            return
+        cmd, s_id = data.split(":")
+        try:
+            user_id = int(s_id)
+        except:
+            await call.answer("Неверный ID"); return
+
+        if cmd == "grant":
+            users = load_allowed_users()
+            if user_id not in users:
+                users.append(user_id)
+                save_allowed_users(users)
+            # notify user and edit admin message
+            try:
+                await bot.send_message(user_id, "🎉 Вам одобрен доступ к боту!")
+            except:
+                pass
+            try:
+                await call.message.edit_text(f"✔ Доступ пользователю {user_id} разрешён.")
+            except:
+                pass
+            await call.answer()
+            return
+        else:  # deny
+            try:
+                await bot.send_message(user_id, "❌ Ваш запрос доступа отклонён.")
+            except:
+                pass
+            try:
+                await call.message.edit_text(f"❌ Доступ пользователю {user_id} отклонён.")
+            except:
+                pass
+            await call.answer()
+            return
 
     # calendar callbacks: cal:{owner}:{field}:prev/next/day:...
     if data.startswith("cal:"):
@@ -642,6 +766,14 @@ async def callback_handler(call: CallbackQuery):
                 await call.message.answer("History cleared.")
                 await call.answer(); return
 
+            if action == "showallowed":
+                users = load_allowed_users()
+                if not users:
+                    await call.message.answer("Список разрешённых пользователей пуст.")
+                else:
+                    await call.message.answer("Разрешённые пользователи:\n" + "\n".join(str(u) for u in users))
+                await call.answer(); return
+
     await call.answer()
 
 # ============== Admin quick commands ==============
@@ -677,9 +809,52 @@ async def cmd_delemp(msg: Message):
     else:
         await msg.answer("Index out of range.")
 
+@dp.message(Command(commands=["adduser"]))
+async def cmd_adduser(msg: Message):
+    uid = msg.from_user.id
+    if uid not in ADMIN_IDS:
+        await msg.answer("Нет доступа"); return
+    text = (msg.text or "").replace("/adduser","",1).strip()
+    try:
+        new_id = int(text)
+        users = load_allowed_users()
+        if new_id not in users:
+            users.append(new_id)
+            save_allowed_users(users)
+            await msg.answer(f"ID {new_id} добавлен.")
+        else:
+            await msg.answer("Этот ID уже в списке.")
+    except:
+        await msg.answer("Использование: /adduser <id>")
+
+@dp.message(Command(commands=["deluser"]))
+async def cmd_deluser(msg: Message):
+    uid = msg.from_user.id
+    if uid not in ADMIN_IDS:
+        await msg.answer("Нет доступа"); return
+    text = (msg.text or "").replace("/deluser","",1).strip()
+    try:
+        del_id = int(text)
+        users = load_allowed_users()
+        if del_id in users:
+            users.remove(del_id)
+            save_allowed_users(users)
+            await msg.answer(f"ID {del_id} удалён.")
+        else:
+            await msg.answer("ID не найден.")
+    except:
+        await msg.answer("Использование: /deluser <id>")
+
 # ============== Start ==============
 async def main():
     print("HRminiBot PRO STARTED")
+    # ensure files exist
+    if not os.path.exists(HISTORY_FILE):
+        save_json(HISTORY_FILE, [])
+    if not os.path.exists(EMPLOYEES_FILE):
+        save_json(EMPLOYEES_FILE, [])
+    if not os.path.exists(ALLOWED_USERS_FILE):
+        save_json(ALLOWED_USERS_FILE, [])
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
