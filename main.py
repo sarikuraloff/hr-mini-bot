@@ -537,30 +537,47 @@ async def main_handler(msg: Message):
             "total": res["total"], "final": res["final"], "ts": datetime.utcnow().isoformat()
         }
         save_history_item(entry)
+        
+        # Подробные формулы
+        old_base = res["base_old"]         # старые дни до вычета использованных рабочих
+        new_base = res["base_new"]         # новые дни до вычета использованных календарных
+        old_after = res["netto_old"]       # после вычета рабочих
+        new_after = res["netto_new"]       # после вычета календарных
 
-        table = {
-            "Дата приёма": d["d1"],
-            "Дата увольнения": d["d2"],
-            "Исп. рабочих": d["used_work"],
-            "Исп. календарных": d["used_cal"],
-            "Прогул": d["prog"],
-            "": "",
-            "Старые месяцы": res["months_old"],
-            "Новые месяцы": res["months_new"],
-            "Вычет месяцев": res["prog_m"],
-            "После вычета": res["months_new_net"],
-            "": "",
-            "Старые дни ×1.25": f"{res['base_old']:.2f}",
-            "Новые дни ×1.75": f"{res['base_new']:.2f}",
-            "": "",
-            "Итого": f"{res['total']:.2f}",
-            "Компенсация": res['final']
-        }
+        # Подробные формулы
+        old_base = res["base_old"]
+        new_base = res["base_new"]
+        old_after = res["netto_old"]
+        new_after = res["netto_new"]
 
-        await msg.answer(L(uid, "calc_done"))
-        await msg.answer(make_table(table))
-        pdf = create_pdf_result(table)
-        await msg.answer_document(open(pdf, "rb"))
+        lines = []
+
+        lines.append("[ ОСНОВНЫЕ ДАННЫЕ ]")
+        lines.append(f"Дата приёма:          {d['d1']}")
+        lines.append(f"Дата увольнения:      {d['d2']}")
+        lines.append(f"Исп. рабочих:         {d['used_work']}")
+        lines.append(f"Исп. календарных:     {d['used_cal']}")
+        lines.append(f"Прогул:               {d['prog']}")
+        lines.append("")
+
+        lines.append("[ МЕСЯЦЫ ]")
+        lines.append(f"Старые месяцы:        {res['months_old']}")
+        lines.append(f"Новые месяцы:         {res['months_new']}")
+        lines.append(f"Вычет месяцев:        {res['prog_m']}")
+        lines.append(f"После вычета:         {res['months_new_net']}")
+        lines.append("")
+
+        lines.append("[ ДНИ ]")
+        lines.append(f"Старые дни ×1.25:     {old_base:.2f} - {d['used_work']} = {old_after:.2f}")
+        lines.append(f"Новые дни ×1.75:      {new_base:.2f} - {d['used_cal']} = {new_after:.2f}")
+        lines.append("")
+
+        lines.append("[ ИТОГ ]")
+        lines.append(f"Итого:                {res['total']:.2f}")
+        lines.append(f"Компенсация:          {res['final']}")
+
+        await msg.answer("\n".join(lines))
+
 
         # if admin previously selected employee in session, create order
         emp = USER_DATA.get(uid, {}).get("employee")
