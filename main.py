@@ -1,3 +1,7 @@
+# HRminiBot_WITH_ACCESS.py
+# Полностью обновлённый HRminiBot PRO с поддержкой запроса доступа (/access -> админ подтверждает)
+# Вставь свой BOT_TOKEN и при необходимости поправь ADMIN_IDS (по умолчанию - твой ID).
+
 import asyncio
 import json
 import os
@@ -339,31 +343,6 @@ def main_menu(uid: int) -> ReplyKeyboardMarkup:
     )
     return kb
 
-def calendar_keyboard(year: int, month: int, prefix: str) -> InlineKeyboardMarkup:
-    cal = calendar.Calendar()
-    inline = []
-    month_name = datetime(year, month, 1).strftime("%B %Y")
-    inline.append([
-        InlineKeyboardButton(text="«", callback_data=f"{prefix}:prev:{year}:{month}"),
-        InlineKeyboardButton(text=month_name, callback_data="noop"),
-        InlineKeyboardButton(text="»", callback_data=f"{prefix}:next:{year}:{month}")
-    ])
-    inline.append([InlineKeyboardButton(text=d, callback_data="noop") for d in ["Mo","Tu","We","Th","Fr","Sa","Su"]])
-    week = []
-    for d in cal.itermonthdays(year, month):
-        if d == 0:
-            week.append(InlineKeyboardButton(text=" ", callback_data="noop"))
-        else:
-            week.append(InlineKeyboardButton(text=str(d), callback_data=f"{prefix}:day:{year}:{month}:{d}"))
-        if len(week) == 7:
-            inline.append(week)
-            week = []
-    if week:
-        while len(week) < 7:
-            week.append(InlineKeyboardButton(text=" ", callback_data="noop"))
-        inline.append(week)
-    return InlineKeyboardMarkup(inline_keyboard=inline)
-
 # ============== Handlers ==============
 @dp.message(Command(commands=["start"]))
 async def cmd_start(msg: Message):
@@ -422,8 +401,6 @@ async def main_handler(msg: Message):
     if text == L(uid, "new_calc"):
         USER_DATA[uid] = {}
         USER_STATE[uid] = "d1"
-        kb = calendar_keyboard(datetime.utcnow().year, datetime.utcnow().month, f"cal:{uid}:d1")
-        await msg.answer(L(uid, "enter_d1"), reply_markup=kb)
         return
 
     if text == L(uid, "history"):
@@ -527,8 +504,6 @@ async def main_handler(msg: Message):
         USER_DATA[uid]["d1"] = parsed
         USER_STATE[uid] = "d2"
         y = int(parsed.split(".")[2]); m = int(parsed.split(".")[1])
-        kb = calendar_keyboard(y, m, f"cal:{uid}:d2")
-        await msg.answer(L(uid, "enter_d2"), reply_markup=kb)
         return
 
     if state == "d2":
@@ -565,24 +540,26 @@ async def main_handler(msg: Message):
         }
         save_history_item(entry)
 
-        table = {
-            "Дата приёма": d["d1"],
-            "Дата увольнения": d["d2"],
-            "Исп. рабочих": d["used_work"],
-            "Исп. календарных": d["used_cal"],
-            "Прогул": d["prog"],
-            "": "",
-            "Старые месяцы": res["months_old"],
-            "Новые месяцы": res["months_new"],
-            "Вычет месяцев": res["prog_m"],
-            "После вычета": res["months_new_net"],
-            "": "",
-            "Старые дни ×1.25": f"{res['base_old']:.2f}",
-            "Новые дни ×1.75": f"{res['base_new']:.2f}",
-            "": "",
-            "Итого": f"{res['total']:.2f}",
-            "Компенсация": res['final']
-        }
+        # Соберём ASCII-таблицу в нужном виде
+        table = (
+            "┌──────────────────┬────────────┐\n"
+            f"│ Дата приёма      │ {d['d1']:<10} │\n"
+            f"│ Дата увольнения  │ {d['d2']:<10} │\n"
+            f"│ Исп. рабочих     │ {d['used_work']:<10} │\n"
+            f"│ Исп. календарных │ {d['used_cal']:<10} │\n"
+            f"│ Прогул           │ {d['prog']:<10} │\n"
+            "├──────────────────┼────────────┤\n"
+            f"│ Старые месяцы    │ {res['months_old']:<10} │\n"
+            f"│ Новые месяцы     │ {res['months_new']:<10} │\n"
+            f"│ Вычет месяцев    │ {res['prog_m']:<10} │\n"
+            f"│ После вычета     │ {res['months_new_net']:<10} │\n"
+            f"│ Старые дни ×1.25 │ {res['base_old']:.2f} - {d['used_work']} = {res['netto_old']:.2f} │\n"
+            f"│ Новые дни ×1.75  │ {res['base_new']:.2f} - {d['used_cal']} = {res['netto_new']:.2f} │\n"
+            "├──────────────────┼────────────┤\n"
+            f"│ Итого            │ {res['total']:.2f}     │\n"
+            f"│ Компенсация      │ {res['final']:<10} │\n"
+            "└──────────────────┴────────────┘"
+        )
 
         await msg.answer(L(uid, "calc_done"))
         await msg.answer(make_table(table))
@@ -651,53 +628,7 @@ async def callback_handler(call: CallbackQuery):
             await call.answer()
             return
 
-    # calendar callbacks: cal:{owner}:{field}:prev/next/day:...
-    if data.startswith("cal:"):
-        parts = data.split(":")
-        if len(parts) >= 4:
-            _, owner_s, field = parts[0:3]
-            try:
-                owner = int(owner_s)
-            except:
-                await call.answer(); return
-            if owner != uid and uid not in ADMIN_IDS:
-                await call.answer("Это не ваш календарь.", show_alert=True); return
-            action = parts[3]
-            if action == "prev" and len(parts) >= 6:
-                y = int(parts[4]); m = int(parts[5])
-                prev = date(y, m, 1) - timedelta(days=1)
-                kb = calendar_keyboard(prev.year, prev.month, f"cal:{owner}:{field}")
-                try:
-                    await call.message.edit_reply_markup(reply_markup=kb)
-                except:
-                    pass
-                await call.answer(); return
-            if action == "next" and len(parts) >= 6:
-                y = int(parts[4]); m = int(parts[5])
-                nxt = date(y, m, 28) + timedelta(days=8)
-                kb = calendar_keyboard(nxt.year, nxt.month, f"cal:{owner}:{field}")
-                try:
-                    await call.message.edit_reply_markup(reply_markup=kb)
-                except:
-                    pass
-                await call.answer(); return
-            if action == "day" and len(parts) >= 7:
-                y = int(parts[4]); m = int(parts[5]); d = int(parts[6])
-                selected = datetime(y,m,d).date().strftime("%d.%m.%Y")
-                USER_DATA.setdefault(owner, {})
-                USER_DATA[owner][field] = selected
-                if owner == uid:
-                    if field == "d1":
-                        USER_STATE[owner] = "d2"
-                        kb = calendar_keyboard(y, m, f"cal:{owner}:d2")
-                        await call.message.answer(f"Выбрано {selected}\n{L(owner,'enter_d2')}", reply_markup=kb)
-                    elif field == "d2":
-                        USER_STATE[owner] = "used_work"
-                        await call.message.answer(f"Выбрано {selected}\n{L(owner,'enter_used_work')}")
-                else:
-                    await call.message.answer(f"Дата {selected} сохранена для пользователя {owner}.")
-                await call.answer(); return
-
+      
     # language set: lang:set:ru:uid
     if data.startswith("lang:set:"):
         parts = data.split(":")
