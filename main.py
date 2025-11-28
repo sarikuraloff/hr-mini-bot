@@ -204,7 +204,9 @@ def round_half_up(value: float) -> int:
     frac = value - math.floor(value)
     return math.ceil(value) if frac >= 0.5 else math.floor(value)
 
-def calculate_compensation(d1s, d2s, used_work, used_cal, prog_old, prog_new, bs_old, bs_new):
+def calculate_compensation(d1s, d2s, used_work, used_cal,
+                           prog_old, prog_new, bs_old, bs_new):
+
     pivot = date(2023, 4, 29)
 
     d1 = datetime.strptime(d1s, "%d.%m.%Y").date()
@@ -221,7 +223,7 @@ def calculate_compensation(d1s, d2s, used_work, used_cal, prog_old, prog_new, bs
         months_old = months_between_precise(d1, pivot)
         months_new = months_between_precise(pivot + timedelta(days=1), d2)
 
-    # 2. Вычет месяцев (прогул + БС)
+    # 2. Вычет месяцев по правилам
     def deduction(days):
         if days < 15:
             return 0
@@ -229,10 +231,10 @@ def calculate_compensation(d1s, d2s, used_work, used_cal, prog_old, prog_new, bs
 
     ded_prog_old = deduction(prog_old)
     ded_prog_new = deduction(prog_new)
-    ded_bs_old = deduction(bs_old)
-    ded_bs_new = deduction(bs_new)
+    ded_bs_old   = deduction(bs_old)
+    ded_bs_new   = deduction(bs_new)
 
-    # 3. Итоговые месяцы
+    # 3. Месяцы после всех вычетов
     m_old_after = max(0, months_old - ded_prog_old - ded_bs_old)
     m_new_after = max(0, months_new - ded_prog_new - ded_bs_new)
 
@@ -268,7 +270,6 @@ def calculate_compensation(d1s, d2s, used_work, used_cal, prog_old, prog_new, bs
         "total": total,
         "final": final
     }
-
 
 # ============== PDF & Excel helpers ==============
 def create_pdf_result(table_data: dict, filename="komp_result.pdf"):
@@ -574,52 +575,27 @@ async def main_handler(msg: Message):
         USER_DATA[uid]["bs_new"] = safe_int(text)
         USER_STATE[uid] = None
 
-
-    if state == "prog_old":
-        USER_DATA[uid]["prog_old"] = safe_int(text)
-        USER_STATE[uid] = "prog_new"
-        await msg.answer("Введите прогул нового периода (после 30.04.2023):")
-        return
-
-    if state == "prog_new":
-        USER_DATA[uid]["prog_new"] = safe_int(text)
-        USER_STATE[uid] = "bs_old"
-        await msg.answer("Введите БС старого периода (до 29.04.2023):")
-        return
-
-    if state == "bs_old":
-        USER_DATA[uid]["bs_old"] = safe_int(text)
-        USER_STATE[uid] = "bs_new"
-        await msg.answer("Введите БС нового периода (после 30.04.2023):")
-        return
-
-    if state == "bs_new":
-        USER_DATA[uid]["bs_new"] = safe_int(text)
-        USER_STATE[uid] = None
-
-    if state == "prog":
-        USER_DATA[uid]["prog"] = safe_int(text)
-        USER_STATE[uid] = None
+        # --- CALCULATION HERE ---
         d = USER_DATA[uid]
-        res = calculate_compensation( d["d1"], d["d2"], d["used_work"], d["used_cal"], d["prog_old"], d["prog_new"], d["bs_old"], d["bs_new"])
+        
+        res = calculate_compensation( d["d1"], d["d2"], d["used_work"], d["used_cal"], d["prog_old"], d["prog_new"], d["bs_old"], d["bs_new"] )
+        import json
+        await msg.answer("DEBUG:\n" + json.dumps(res, indent=2, ensure_ascii=False))
         entry = {
             "d1": d["d1"], "d2": d["d2"], "used_work": d["used_work"],
-            "used_cal": d["used_cal"], "prog": d["prog"],
-            "total": res["total"], "final": res["final"], "ts": datetime.utcnow().isoformat()
+            "used_cal": d["used_cal"],
+            "prog_old": d["prog_old"], "prog_new": d["prog_new"],
+            "bs_old": d["bs_old"], "bs_new": d["bs_new"],
+            "total": res["total"], "final": res["final"],
+            "ts": datetime.utcnow().isoformat()
         }
         save_history_item(entry)
         
         # Подробные формулы
-        old_base = res["base_old"]         # старые дни до вычета использованных рабочих
+        old_base_ = res["base_old"]         # старые дни до вычета использованных рабочих
         new_base = res["base_new"]         # новые дни до вычета использованных календарных
         old_after = res["netto_old"]       # после вычета рабочих
         new_after = res["netto_new"]       # после вычета календарных
-
-        # Подробные формулы
-        old_base = res["base_old"]
-        new_base = res["base_new"]
-        old_after = res["netto_old"]
-        new_after = res["netto_new"]
 
         lines = []
 
