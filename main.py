@@ -319,9 +319,18 @@ def create_order_pdf(employee: dict, calc_info: dict, filename="order.pdf"):
 
 def export_history_excel(filename="history.xlsx"):
     h = load_history()
+    
+    # FIX старых записей
+    for r in h:
+        r.setdefault("prog_old", 0)
+        r.setdefault("prog_new", 0)
+        r.setdefault("bs_old", 0)
+        r.setdefault("bs_new", 0)
+        
     wb = Workbook()
     ws = wb.active
     ws.title = "History"
+    
     ws.append(["Дата приёма", "Дата увольнения", "Исп. рабочих", "Исп. календ.", "Прогул старый", "Прогул новый", "БС старый", "БС новый", "Итого", "Компенсация", "ts"])
     for r in h:
         ws.append([
