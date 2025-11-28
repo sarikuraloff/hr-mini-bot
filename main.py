@@ -322,21 +322,23 @@ def export_history_excel(filename="history.xlsx"):
     wb = Workbook()
     ws = wb.active
     ws.title = "History"
-    ws.append(["Дата приёма","Дата увольнения","Исп. рабочих","Исп. календ.","Прогул","Итого","Компенсация","ts"])
+    ws.append(["Дата приёма", "Дата увольнения", "Исп. рабочих", "Исп. календ.", "Прогул старый", "Прогул новый", "БС старый", "БС новый", "Итого", "Компенсация", "ts"])
     for r in h:
         ws.append([
             r.get("d1",""),
             r.get("d2",""),
             r.get("used_work",0),
             r.get("used_cal",0),
-            r.get("prog",0),
+            r.get("prog_old",0),
+            r.get("prog_new",0),
+            r.get("bs_old",0),
+            r.get("bs_new",0),
             r.get("total",""),
             r.get("final",""),
             r.get("ts","")
         ])
     wb.save(filename)
     return filename
-
 # ============== pretty table ==============
 def make_table(data: dict) -> str:
     col1 = max(len(str(k)) for k in data.keys())
