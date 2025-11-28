@@ -204,11 +204,13 @@ def round_half_up(value: float) -> int:
     frac = value - math.floor(value)
     return math.ceil(value) if frac >= 0.5 else math.floor(value)
 
-def calculate_compensation(d1s: str, d2s: str, used_work, used_cal, prog):
-    pivot = date(2023, 4, 30)
+def calculate_compensation(d1s, d2s, used_work, used_cal, prog_old, prog_new, bs_old, bs_new):
+    pivot = date(2023, 4, 29)
+
     d1 = datetime.strptime(d1s, "%d.%m.%Y").date()
     d2 = datetime.strptime(d2s, "%d.%m.%Y").date()
 
+    # 1. Старые и новые месяцы
     if d2 <= pivot:
         months_old = months_between_precise(d1, d2)
         months_new = 0
@@ -217,14 +219,28 @@ def calculate_compensation(d1s: str, d2s: str, used_work, used_cal, prog):
         months_new = months_between_precise(d1, d2)
     else:
         months_old = months_between_precise(d1, pivot)
-        months_new = months_between_precise(date(2023, 5, 1), d2)
+        months_new = months_between_precise(pivot + timedelta(days=1), d2)
 
-    prog_m = progul_deduction_days(prog)
-    months_new_net = max(0, months_new - prog_m)
+    # 2. Вычет месяцев (прогул + БС)
+    def deduction(days):
+        if days < 15:
+            return 0
+        return ((days - 15) // 30) + 1
 
-    base_old = months_old * 1.25
-    base_new = months_new_net * 1.75
+    ded_prog_old = deduction(prog_old)
+    ded_prog_new = deduction(prog_new)
+    ded_bs_old = deduction(bs_old)
+    ded_bs_new = deduction(bs_new)
 
+    # 3. Итоговые месяцы
+    m_old_after = max(0, months_old - ded_prog_old - ded_bs_old)
+    m_new_after = max(0, months_new - ded_prog_new - ded_bs_new)
+
+    # 4. Перевод в дни
+    base_old = m_old_after * 1.25
+    base_new = m_new_after * 1.75
+
+    # 5. Вычитаем использованные дни
     netto_old = max(0, base_old - float(used_work))
     netto_new = max(0, base_new - float(used_cal))
 
@@ -234,15 +250,25 @@ def calculate_compensation(d1s: str, d2s: str, used_work, used_cal, prog):
     return {
         "months_old": months_old,
         "months_new": months_new,
-        "prog_m": prog_m,
-        "months_new_net": months_new_net,
+
+        "ded_prog_old": ded_prog_old,
+        "ded_prog_new": ded_prog_new,
+        "ded_bs_old": ded_bs_old,
+        "ded_bs_new": ded_bs_new,
+
+        "m_old_after": m_old_after,
+        "m_new_after": m_new_after,
+
         "base_old": base_old,
         "base_new": base_new,
+
         "netto_old": netto_old,
         "netto_new": netto_new,
+
         "total": total,
         "final": final
     }
+
 
 # ============== PDF & Excel helpers ==============
 def create_pdf_result(table_data: dict, filename="komp_result.pdf"):
@@ -522,15 +548,60 @@ async def main_handler(msg: Message):
 
     if state == "used_cal":
         USER_DATA[uid]["used_cal"] = safe_float(text)
-        USER_STATE[uid] = "prog"
-        await msg.answer(L(uid, "enter_prog"))
+        USER_STATE[uid] = "prog_old"
+        await msg.answer("Введите прогул старого периода (до 29.04.2023):")
         return
+
+    if state == "prog_old":
+        USER_DATA[uid]["prog_old"] = safe_int(text)
+        USER_STATE[uid] = "prog_new"
+        await msg.answer("Введите прогул нового периода (после 30.04.2023):")
+        return
+
+    if state == "prog_new":
+        USER_DATA[uid]["prog_new"] = safe_int(text)
+        USER_STATE[uid] = "bs_old"
+        await msg.answer("Введите БС старого периода (до 29.04.2023):")
+        return
+
+    if state == "bs_old":
+        USER_DATA[uid]["bs_old"] = safe_int(text)
+        USER_STATE[uid] = "bs_new"
+        await msg.answer("Введите БС нового периода (после 30.04.2023):")
+        return
+
+    if state == "bs_new":
+        USER_DATA[uid]["bs_new"] = safe_int(text)
+        USER_STATE[uid] = None
+
+
+    if state == "prog_old":
+        USER_DATA[uid]["prog_old"] = safe_int(text)
+        USER_STATE[uid] = "prog_new"
+        await msg.answer("Введите прогул нового периода (после 30.04.2023):")
+        return
+
+    if state == "prog_new":
+        USER_DATA[uid]["prog_new"] = safe_int(text)
+        USER_STATE[uid] = "bs_old"
+        await msg.answer("Введите БС старого периода (до 29.04.2023):")
+        return
+
+    if state == "bs_old":
+        USER_DATA[uid]["bs_old"] = safe_int(text)
+        USER_STATE[uid] = "bs_new"
+        await msg.answer("Введите БС нового периода (после 30.04.2023):")
+        return
+
+    if state == "bs_new":
+        USER_DATA[uid]["bs_new"] = safe_int(text)
+        USER_STATE[uid] = None
 
     if state == "prog":
         USER_DATA[uid]["prog"] = safe_int(text)
         USER_STATE[uid] = None
         d = USER_DATA[uid]
-        res = calculate_compensation(d["d1"], d["d2"], d["used_work"], d["used_cal"], d["prog"])
+        res = calculate_compensation( d["d1"], d["d2"], d["used_work"], d["used_cal"], d["prog_old"], d["prog_new"], d["bs_old"], d["bs_new"])
         entry = {
             "d1": d["d1"], "d2": d["d2"], "used_work": d["used_work"],
             "used_cal": d["used_cal"], "prog": d["prog"],
@@ -557,19 +628,26 @@ async def main_handler(msg: Message):
         lines.append(f"Дата увольнения:      {d['d2']}")
         lines.append(f"Исп. рабочих:         {d['used_work']}")
         lines.append(f"Исп. календарных:     {d['used_cal']}")
-        lines.append(f"Прогул:               {d['prog']}")
+        lines.append(f"Прогул старый:        {d['prog_old']}")
+        lines.append(f"Прогул новый:         {d['prog_new']}")
+        lines.append(f"БС старый:            {d['bs_old']}")
+        lines.append(f"БС новый:             {d['bs_new']}")
         lines.append("")
 
         lines.append("[ МЕСЯЦЫ ]")
         lines.append(f"Старые месяцы:        {res['months_old']}")
         lines.append(f"Новые месяцы:         {res['months_new']}")
-        lines.append(f"Вычет месяцев:        {res['prog_m']}")
-        lines.append(f"После вычета:         {res['months_new_net']}")
+        lines.append(f"Вычет прогул старый:  {res['ded_prog_old']}")
+        lines.append(f"Вычет прогул новый:   {res['ded_prog_new']}")
+        lines.append(f"Вычет БС старый:      {res['ded_bs_old']}")
+        lines.append(f"Вычет БС новый:       {res['ded_bs_new']}")
+        lines.append(f"После вычета старый : {res['m_old_after']}")
+        lines.append(f"После вычета новый :  {res['m_new_after']}")
         lines.append("")
 
         lines.append("[ ДНИ ]")
-        lines.append(f"Старые дни ×1.25:     {old_base:.2f} - {d['used_work']} = {old_after:.2f}")
-        lines.append(f"Новые дни ×1.75:      {new_base:.2f} - {d['used_cal']} = {new_after:.2f}")
+        lines.append(f"Старые дни ×1.25: {res['m_old_after']} * 1.25 = {res['base_old']:.2f} - {d['used_work']} = {res['netto_old']:.2f}")
+        lines.append(f"Новые дни ×1.75: {res['m_new_after']} * 1.75 = {res['base_new']:.2f} - {d['used_cal']} = {res['netto_new']:.2f}")
         lines.append("")
 
         lines.append("[ ИТОГ ]")
