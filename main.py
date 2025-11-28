@@ -579,8 +579,6 @@ async def main_handler(msg: Message):
         d = USER_DATA[uid]
         
         res = calculate_compensation( d["d1"], d["d2"], d["used_work"], d["used_cal"], d["prog_old"], d["prog_new"], d["bs_old"], d["bs_new"] )
-        import json
-        await msg.answer("DEBUG:\n" + json.dumps(res, indent=2, ensure_ascii=False))
         entry = {
             "d1": d["d1"], "d2": d["d2"], "used_work": d["used_work"],
             "used_cal": d["used_cal"],
