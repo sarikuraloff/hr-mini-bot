@@ -5,7 +5,7 @@ import math
 from datetime import datetime, date, timedelta
 from typing import Optional, Dict, Any
 
-from aiogram import Bot, Dispatcher
+from aiogram import Bot, Dispatcher, F
 from aiogram.types import (
     Message, ReplyKeyboardMarkup, KeyboardButton,
     InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
@@ -27,6 +27,7 @@ dp = Dispatcher()
 HISTORY_FILE = "history.json"
 EMPLOYEES_FILE = "employees.json"
 ALLOWED_USERS_FILE = "allowed_users.json"
+CONTACTS_FILE = "contacts.json"
 
 # in-memory state
 USER_STATE: Dict[int, Optional[str]] = {}
@@ -146,6 +147,12 @@ def load_employees():
 
 def save_employees(elist):
     save_json(EMPLOYEES_FILE, elist)
+    
+def load_contacts():
+    return load_json(CONTACTS_FILE, {})
+
+def save_contacts(data):
+    save_json(CONTACTS_FILE, data)
 
 # ============== Allowed users helpers ==============
 def load_allowed_users():
@@ -378,20 +385,78 @@ def main_menu(uid: int) -> ReplyKeyboardMarkup:
     return kb
 
 # ============== Handlers ==============
+@dp.message(F.contact)
+async def handle_contact(msg: Message):
+    uid = msg.from_user.id
+    contact = msg.contact
+    phone = contact.phone_number
+    full_name = msg.from_user.full_name
+
+    # сохраняем телефон в отдельный файл
+    contacts = load_contacts()
+    contacts[str(uid)] = {
+        "phone": phone,
+        "name": full_name
+    }
+    save_contacts(contacts)
+
+    # если уже есть доступ — просто спасибо сказать
+    if is_allowed(uid):
+        await msg.answer("✅ Контакт сохранён. У вас уже есть доступ.", reply_markup=main_menu(uid))
+        return
+
+    # отправляем запрос всем админам с теми же кнопками grant/deny
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Разрешить доступ", callback_data=f"grant:{uid}")],
+        [InlineKeyboardButton(text="❌ Отклонить", callback_data=f"deny:{uid}")]
+    ])
+    for admin in ADMIN_IDS:
+        try:
+            await bot.send_message(
+                admin,
+                f"📨 Запрос доступа (по контакту)\n\n"
+                f"Имя: {full_name}\n"
+                f"Телефон: {phone}\n"
+                f"ID: {uid}\n\nРазрешить доступ?",
+                reply_markup=kb
+            )
+        except Exception as e:
+            print("Notify admin(contact) error:", e)
+
+    await msg.answer(
+        "📲 Спасибо! Ваш номер отправлен администратору.\n"
+        "Ожидайте, когда он разрешит доступ.",
+        reply_markup=ReplyKeyboardMarkup(
+            resize_keyboard=True,
+            keyboard=[[KeyboardButton(text="🔄 Проверить доступ (/start)")]]
+        )
+    )
+
 @dp.message(Command(commands=["start"]))
 async def cmd_start(msg: Message):
     uid = msg.from_user.id
     user_lang.setdefault(uid, "ru")
     USER_STATE[uid] = None
     USER_DATA[uid] = {}
-    # Если не разрешён — показываем подсказку и команду /access
+
+    # Если не разрешён — показываем подсказку, /access и кнопку отправки контакта
     if not is_allowed(uid):
+        kb = ReplyKeyboardMarkup(
+            resize_keyboard=True,
+            keyboard=[
+                [KeyboardButton(text="📱 Отправить контакт", request_contact=True)]
+            ]
+        )
         await msg.answer(
             "❌ У вас нет доступа к этому боту.\n\n"
-            "Чтобы запросить доступ, отправьте команду:\n"
-            "/access"
+            "1) Нажмите кнопку «📱 Отправить контакт» ниже,\n"
+            "   чтобы админ увидел ваш номер и ID.\n"
+            "ИЛИ\n"
+            "2) Отправьте команду /access чтобы запросить доступ.",
+            reply_markup=kb
         )
         return
+
     await msg.answer(L(uid, "hello"), reply_markup=main_menu(uid))
 
 @dp.message(Command(commands=["access"]))
@@ -467,8 +532,10 @@ async def main_handler(msg: Message):
             [InlineKeyboardButton(text="🧹 Clear employees", callback_data=f"admin:clearemps:{uid}")],
             [InlineKeyboardButton(text="🗑 Clear history", callback_data=f"admin:clearhist:{uid}")],
             [InlineKeyboardButton(text="📤 Export Excel", callback_data=f"admin:export:{uid}")],
-            [InlineKeyboardButton(text="👥 Show allowed users", callback_data=f"admin:showallowed:{uid}")]
+            [InlineKeyboardButton(text="👥 Show allowed users", callback_data=f"admin:showallowed:{uid}")],
+            [InlineKeyboardButton(text="❌ Remove user", callback_data=f"admin:removeallowed:{uid}")]
         ])
+
         await msg.answer("Admin panel:", reply_markup=kb)
         return
 
@@ -659,6 +726,22 @@ async def main_handler(msg: Message):
 async def callback_handler(call: CallbackQuery):
     data = call.data or ""
     uid = call.from_user.id
+    
+    # === удаление конкретного пользователя ===
+    if str(data).startswith("rm:"):
+        target_id = int(str(data).split(":")[1])
+        users = load_allowed_users()
+
+        if target_id in users:
+            users.remove(target_id)
+            save_allowed_users(users)
+            await call.message.answer(f"Пользователь {target_id} удалён! ✔")
+        else:
+            await call.message.answer("Этот пользователь уже удалён.")
+
+        await call.answer()
+        return
+
 
     if data == "noop":
         await call.answer()
@@ -770,15 +853,50 @@ async def callback_handler(call: CallbackQuery):
 
             if action == "showallowed":
                 users = load_allowed_users()
+                contacts = load_contacts()
+
                 if not users:
                     await call.message.answer("Список разрешённых пользователей пуст.")
                 else:
-                    await call.message.answer("Разрешённые пользователи:\n" + "\n".join(str(u) for u in users))
-                await call.answer(); return
+                    text = ["👥 Разрешённые пользователи:"]
+                    for u in users:
+                        info = contacts.get(str(u), {})
+                        phone = info.get("phone", "—")
+                        name = info.get("name", f"ID {u}")
+                        text.append(f"🧑 {name} — 📞 {phone}")
+                    await call.message.answer("\n".join(text))
 
-    await call.answer()
+                await call.answer()
+                return
 
-# ============== Admin quick commands ==============
+                
+            if action == "removeallowed":
+                users = load_allowed_users()
+                contacts = load_contacts()
+    
+                if not users:
+                    await call.message.answer("Список пуст 👀")
+                else:
+                    kb = InlineKeyboardMarkup(inline_keyboard=[])
+                    for u in users:
+                        info = contacts.get(str(u), {})
+                        phone = info.get("phone", "Неизвестно")
+                        name = info.get("name", f"ID {u}")
+
+                        btn_text = f"❌ Удалить {name.replace('None', '')} ({phone})"
+                        kb.inline_keyboard.append([
+                            InlineKeyboardButton(
+                                text=btn_text,
+                                callback_data=f"rm:{u}"
+                            )   
+                        ])
+
+                    await call.message.answer("👇 Выберите кого удалить:", reply_markup=kb)
+    
+                await call.answer()
+                return
+
+    # ============== Admin quick commands ==============
 @dp.message(Command(commands=["addemp"]))
 async def cmd_addemp(msg: Message):
     uid = msg.from_user.id
@@ -857,6 +975,11 @@ async def main():
         save_json(EMPLOYEES_FILE, [])
     if not os.path.exists(ALLOWED_USERS_FILE):
         save_json(ALLOWED_USERS_FILE, [])
+
+    # ➕ Добавляем контактный файл
+    if not os.path.exists(CONTACTS_FILE):
+        save_json(CONTACTS_FILE, {})
+
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
