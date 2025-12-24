@@ -235,8 +235,9 @@ def calculate_compensation(
             }
 
         total_days = (end - start).days + 1
-        deductions = int(used) + int(prog) + int(bs)
-        effective_days = max(0, total_days - deductions)
+        deductions = int(prog) + int(bs)
+        effective_days = total_days - deductions
+
 
         months = effective_days // 30
         rest = effective_days % 30
@@ -268,12 +269,14 @@ def calculate_compensation(
     )
 
     total = old["result"] + new["result"]
+    total_after_used = max(0, total - used_old - used_new)
 
     return {
         "old": old,
         "new": new,
         "total": total,
-        "final": round_half_up(total)
+        "final": round_half_up(total_after_used),
+        "used_total": used_old + used_new
     }
 # ============== PDF & Excel helpers ==============
 def create_pdf_result(table_data: dict, filename="komp_result.pdf"):
