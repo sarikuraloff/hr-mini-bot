@@ -669,46 +669,32 @@ async def main_handler(msg: Message):
         save_history_item(entry)
         
         # Подробные формулы
-        old_base_ = res["base_old"]         # старые дни до вычета использованных рабочих
-        new_base = res["base_new"]         # новые дни до вычета использованных календарных
-        old_after = res["netto_old"]       # после вычета рабочих
-        new_after = res["netto_new"]       # после вычета календарных
+        old = res["old"]
+        new = res["new"]
 
         lines = []
 
-        lines.append("[ ОСНОВНЫЕ ДАННЫЕ ]")
-        lines.append(f"Дата приёма:          {d['d1']}")
-        lines.append(f"Дата увольнения:      {d['d2']}")
-        lines.append(f"Исп. рабочих:         {d['used_work']}")
-        lines.append(f"Исп. календарных:     {d['used_cal']}")
-        lines.append(f"Прогул старый:        {d['prog_old']}")
-        lines.append(f"Прогул новый:         {d['prog_new']}")
-        lines.append(f"БС старый:            {d['bs_old']}")
-        lines.append(f"БС новый:             {d['bs_new']}")
+        lines.append("[ СТАРЫЙ ПЕРИОД ]")
+        lines.append(f"Стаж (дни):        {old['days']}")
+        lines.append(f"Вычеты (дни):      {old['deductions']}")
+        lines.append(f"Фактически:        {old['eff_days']}")
+        lines.append(f"= {old['months']} мес {old['rest']} дн")
+        lines.append(f"Начислено:         {old['rounded']} × 1.25 = {old['result']}")
         lines.append("")
 
-        lines.append("[ МЕСЯЦЫ ]")
-        lines.append(f"Старые месяцы:        {res['months_old']}")
-        lines.append(f"Новые месяцы:         {res['months_new']}")
-        lines.append(f"Вычет прогул старый:  {res['ded_prog_old']}")
-        lines.append(f"Вычет прогул новый:   {res['ded_prog_new']}")
-        lines.append(f"Вычет БС старый:      {res['ded_bs_old']}")
-        lines.append(f"Вычет БС новый:       {res['ded_bs_new']}")
-        lines.append(f"После вычета старый : {res['m_old_after']}")
-        lines.append(f"После вычета новый :  {res['m_new_after']}")
-        lines.append("")
-
-        lines.append("[ ДНИ ]")
-        lines.append(f"Старые дни ×1.25: {res['m_old_after']} * 1.25 = {res['base_old']:.2f} - {d['used_work']} = {res['netto_old']:.2f}")
-        lines.append(f"Новые дни ×1.75: {res['m_new_after']} * 1.75 = {res['base_new']:.2f} - {d['used_cal']} = {res['netto_new']:.2f}")
+        lines.append("[ НОВЫЙ ПЕРИОД ]")
+        lines.append(f"Стаж (дни):        {new['days']}")
+        lines.append(f"Вычеты (дни):      {new['deductions']}")
+        lines.append(f"Фактически:        {new['eff_days']}")
+        lines.append(f"= {new['months']} мес {new['rest']} дн")
+        lines.append(f"Начислено:         {new['rounded']} × 1.75 = {new['result']}")
         lines.append("")
 
         lines.append("[ ИТОГ ]")
-        lines.append(f"Итого:                {res['total']:.2f}")
-        lines.append(f"Компенсация:          {res['final']}")
+        lines.append(f"Всего:             {res['total']}")
+        lines.append(f"Компенсация:       {res['final']}")
 
         await msg.answer("\n".join(lines))
-
 
         # if admin previously selected employee in session, create order
         emp = USER_DATA.get(uid, {}).get("employee")
