@@ -244,14 +244,13 @@ def calculate_compensation(
 
     return {
         "days": total_days,
-        "deductions": deductions,   # 🔴 ЭТО ПОЛЕ ОБЯЗАТЕЛЬНО
+        "deductions": deductions,
         "eff_days": effective_days,
         "months": months,
         "rest": rest,
         "rounded": rounded_months,
         "result": rounded_months * coef
     }
-
     # 🟤 старый период
     old = calc_period(
         d1,
@@ -673,7 +672,7 @@ async def main_handler(msg: Message):
 
         lines.append("[ СТАРЫЙ ПЕРИОД ]")
         lines.append(f"Стаж (дни):        {old['days']}")
-        lines.append(f"Вычеты (дни):      {old['deductions']}")
+        lines.append(f"Вычеты (дни):      {old.get('deductions', 0)}")
         lines.append(f"Фактически:        {old['eff_days']}")
         lines.append(f"= {old['months']} мес {old['rest']} дн")
         lines.append(f"Начислено:         {old['rounded']} × 1.25 = {old['result']}")
@@ -681,7 +680,7 @@ async def main_handler(msg: Message):
 
         lines.append("[ НОВЫЙ ПЕРИОД ]")
         lines.append(f"Стаж (дни):        {new['days']}")
-        lines.append(f"Вычеты (дни):      {new['deductions']}")
+        lines.append(f"Вычеты (дни):      {new.get('deductions', 0)}")
         lines.append(f"Фактически:        {new['eff_days']}")
         lines.append(f"= {new['months']} мес {new['rest']} дн")
         lines.append(f"Начислено:         {new['rounded']} × 1.75 = {new['result']}")
