@@ -690,8 +690,8 @@ async def main_handler(msg: Message):
         lines.append("")
 
         lines.append("[ ИТОГ ]")
-        lines.append(f"Всего:             {res['total']}")
-        lines.append(f"Компенсация:       {res['final']}")
+        lines.append(f"Всего:             {total_accrued:.2f} - {used_total} = {total_after_used:.2f}")
+        lines.append(f"Компенсация:       {round_half_up(total_after_used)}")
 
         await msg.answer("\n".join(lines))
 
