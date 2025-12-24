@@ -213,6 +213,7 @@ def round_half_up(value: float) -> int:
 
 def calculate_compensation(
     d1s, d2s,
+    used_old=0, used_new=0,
     prog_old=0, prog_new=0,
     bs_old=0, bs_new=0
 ):
@@ -221,7 +222,7 @@ def calculate_compensation(
     d1 = datetime.strptime(d1s, "%d.%m.%Y").date()
     d2 = datetime.strptime(d2s, "%d.%m.%Y").date()
 
-    def calc_period(start, end, prog_days, bs_days, coef):
+    def calc_period(start, end, used, prog, bs, coef):
         if start > end:
             return {
                 "days": 0, "eff_days": 0,
@@ -229,15 +230,24 @@ def calculate_compensation(
                 "rounded": 0, "result": 0.0
             }
 
+        # 1️⃣ стаж в днях
         total_days = (end - start).days + 1
-        effective_days = max(0, total_days - int(prog_days) - int(bs_days))
 
+        # 2️⃣ все вычеты В ДНЯХ
+        deductions = int(used) + int(prog) + int(bs)
+        effective_days = max(0, total_days - deductions)
+
+        # 3️⃣ перевод в месяцы
         months = effective_days // 30
         rest = effective_days % 30
+
+        # 4️⃣ округление
         rounded_months = months + (1 if rest >= 15 else 0)
 
+        # 5️⃣ итог
         return {
             "days": total_days,
+            "deductions": deductions,
             "eff_days": effective_days,
             "months": months,
             "rest": rest,
@@ -245,23 +255,19 @@ def calculate_compensation(
             "result": rounded_months * coef
         }
 
-    # --- Старый период ---
-    old_start = d1
-    old_end = min(d2, pivot)
-
+    # 🟤 старый период
     old = calc_period(
-        old_start, old_end,
-        prog_old, bs_old,
+        d1,
+        min(d2, pivot),
+        used_old, prog_old, bs_old,
         coef=1.25
     )
 
-    # --- Новый период ---
-    new_start = max(d1, pivot + timedelta(days=1))
-    new_end = d2
-
+    # 🟢 новый период
     new = calc_period(
-        new_start, new_end,
-        prog_new, bs_new,
+        max(d1, pivot + timedelta(days=1)),
+        d2,
+        used_new, prog_new, bs_new,
         coef=1.75
     )
 
