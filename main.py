@@ -211,73 +211,68 @@ def round_half_up(value: float) -> int:
     frac = value - math.floor(value)
     return math.ceil(value) if frac >= 0.5 else math.floor(value)
 
-def calculate_compensation(d1s, d2s, used_work, used_cal,
-                           prog_old, prog_new, bs_old, bs_new):
-
+def calculate_compensation(
+    d1s, d2s,
+    prog_old=0, prog_new=0,
+    bs_old=0, bs_new=0
+):
     pivot = date(2023, 4, 29)
 
     d1 = datetime.strptime(d1s, "%d.%m.%Y").date()
     d2 = datetime.strptime(d2s, "%d.%m.%Y").date()
 
-    # 1. Старые и новые месяцы
-    if d2 <= pivot:
-        months_old = months_between_precise(d1, d2)
-        months_new = 0
-    elif d1 > pivot:
-        months_old = 0
-        months_new = months_between_precise(d1, d2)
-    else:
-        months_old = months_between_precise(d1, pivot)
-        months_new = months_between_precise(pivot + timedelta(days=1), d2)
+    def calc_period(start, end, prog_days, bs_days, coef):
+        if start > end:
+            return {
+                "days": 0, "eff_days": 0,
+                "months": 0, "rest": 0,
+                "rounded": 0, "result": 0.0
+            }
 
-    # 2. Вычет месяцев по правилам
-    def deduction(days):
-        if days < 15:
-            return 0
-        return ((days - 15) // 30) + 1
+        total_days = (end - start).days + 1
+        effective_days = max(0, total_days - int(prog_days) - int(bs_days))
 
-    ded_prog_old = deduction(prog_old)
-    ded_prog_new = deduction(prog_new)
-    ded_bs_old   = deduction(bs_old)
-    ded_bs_new   = deduction(bs_new)
+        months = effective_days // 30
+        rest = effective_days % 30
+        rounded_months = months + (1 if rest >= 15 else 0)
 
-    # 3. Месяцы после всех вычетов
-    m_old_after = max(0, months_old - ded_prog_old - ded_bs_old)
-    m_new_after = max(0, months_new - ded_prog_new - ded_bs_new)
+        return {
+            "days": total_days,
+            "eff_days": effective_days,
+            "months": months,
+            "rest": rest,
+            "rounded": rounded_months,
+            "result": rounded_months * coef
+        }
 
-    # 4. Перевод в дни
-    base_old = m_old_after * 1.25
-    base_new = m_new_after * 1.75
+    # --- Старый период ---
+    old_start = d1
+    old_end = min(d2, pivot)
 
-    # 5. Вычитаем использованные дни
-    netto_old = max(0, base_old - float(used_work))
-    netto_new = max(0, base_new - float(used_cal))
+    old = calc_period(
+        old_start, old_end,
+        prog_old, bs_old,
+        coef=1.25
+    )
 
-    total = netto_old + netto_new
-    final = round_half_up(total)
+    # --- Новый период ---
+    new_start = max(d1, pivot + timedelta(days=1))
+    new_end = d2
+
+    new = calc_period(
+        new_start, new_end,
+        prog_new, bs_new,
+        coef=1.75
+    )
+
+    total = old["result"] + new["result"]
 
     return {
-        "months_old": months_old,
-        "months_new": months_new,
-
-        "ded_prog_old": ded_prog_old,
-        "ded_prog_new": ded_prog_new,
-        "ded_bs_old": ded_bs_old,
-        "ded_bs_new": ded_bs_new,
-
-        "m_old_after": m_old_after,
-        "m_new_after": m_new_after,
-
-        "base_old": base_old,
-        "base_new": base_new,
-
-        "netto_old": netto_old,
-        "netto_new": netto_new,
-
+        "old": old,
+        "new": new,
         "total": total,
-        "final": final
+        "final": round_half_up(total)
     }
-
 # ============== PDF & Excel helpers ==============
 def create_pdf_result(table_data: dict, filename="komp_result.pdf"):
     c = canvas.Canvas(filename, pagesize=A4)
