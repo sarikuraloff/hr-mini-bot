@@ -671,6 +671,11 @@ async def main_handler(msg: Message):
         old = res["old"]
         new = res["new"]
 
+        total_accrued = old["result"] + new["result"]
+        used_total = d["used_work"] + d["used_cal"]
+        total_after_used = max(0, total_accrued - used_total)
+
+
         lines = []
 
         lines.append("[ СТАРЫЙ ПЕРИОД ]")
