@@ -223,37 +223,34 @@ def calculate_compensation(
     d2 = datetime.strptime(d2s, "%d.%m.%Y").date()
 
     def calc_period(start, end, used, prog, bs, coef):
-        if start > end:
-            return {
-                "days": 0, "eff_days": 0,
-                "months": 0, "rest": 0,
-                "rounded": 0, "result": 0.0
-            }
-
-        # 1️⃣ стаж в днях
-        total_days = (end - start).days + 1
-
-        # 2️⃣ все вычеты В ДНЯХ
-        deductions = int(used) + int(prog) + int(bs)
-        effective_days = max(0, total_days - deductions)
-
-        # 3️⃣ перевод в месяцы
-        months = effective_days // 30
-        rest = effective_days % 30
-
-        # 4️⃣ округление
-        rounded_months = months + (1 if rest >= 15 else 0)
-
-        # 5️⃣ итог
+    if start > end:
         return {
-            "days": total_days,
-            "deductions": deductions,
-            "eff_days": effective_days,
-            "months": months,
-            "rest": rest,
-            "rounded": rounded_months,
-            "result": rounded_months * coef
+            "days": 0,
+            "deductions": 0,
+            "eff_days": 0,
+            "months": 0,
+            "rest": 0,
+            "rounded": 0,
+            "result": 0.0
         }
+
+    total_days = (end - start).days + 1
+    deductions = int(used) + int(prog) + int(bs)
+    effective_days = max(0, total_days - deductions)
+
+    months = effective_days // 30
+    rest = effective_days % 30
+    rounded_months = months + (1 if rest >= 15 else 0)
+
+    return {
+        "days": total_days,
+        "deductions": deductions,   # 🔴 ЭТО ПОЛЕ ОБЯЗАТЕЛЬНО
+        "eff_days": effective_days,
+        "months": months,
+        "rest": rest,
+        "rounded": rounded_months,
+        "result": rounded_months * coef
+    }
 
     # 🟤 старый период
     old = calc_period(
