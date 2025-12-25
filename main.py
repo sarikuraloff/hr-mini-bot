@@ -435,11 +435,13 @@ async def handle_contact(msg: Message):
 @dp.message(Command(commands=["start"]))
 async def cmd_start(msg: Message):
     uid = msg.from_user.id
-    user_lang.setdefault(uid, "ru")
+
+    # 🔥 ЖЁСТКИЙ СБРОС СОСТОЯНИЯ
     USER_STATE[uid] = None
     USER_DATA[uid] = {}
 
-    # Если не разрешён — показываем подсказку, /access и кнопку отправки контакта
+    user_lang.setdefault(uid, "ru")
+
     if not is_allowed(uid):
         kb = ReplyKeyboardMarkup(
             resize_keyboard=True,
@@ -449,10 +451,7 @@ async def cmd_start(msg: Message):
         )
         await msg.answer(
             "❌ У вас нет доступа к этому боту.\n\n"
-            "1) Нажмите кнопку «📱 Отправить контакт» ниже,\n"
-            "   чтобы админ увидел ваш номер и ID.\n"
-            "ИЛИ\n"
-            "2) Отправьте команду /access чтобы запросить доступ.",
+            "Нажмите «📱 Отправить контакт» или используйте /access",
             reply_markup=kb
         )
         return
