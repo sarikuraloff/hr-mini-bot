@@ -185,6 +185,38 @@ def parse_date_try(s: str) -> Optional[str]:
         except:
             pass
     return None
+    
+# ==============ВАЛИДАЦИЯ ДАТ============================
+def validate_dates(d1s: str, d2s: str) -> Optional[str]:
+    try:
+        d1 = datetime.strptime(d1s, "%d.%m.%Y").date()
+        d2 = datetime.strptime(d2s, "%d.%m.%Y").date()
+    except Exception:
+        return "❌ Неверный формат даты. Используйте ДД.MM.ГГГГ."
+
+    if d2 < d1:
+        return "❌ Дата увольнения не может быть раньше даты приёма."
+
+    if d2 > date.today():
+        return "⚠️ Дата увольнения в будущем. Проверьте корректность."
+
+    return None
+
+
+def validate_days(value, name: str) -> Optional[str]:
+    try:
+        v = int(value)
+    except Exception:
+        return f"❌ {name}: введите целое число."
+
+    if v < 0:
+        return f"❌ {name}: значение не может быть отрицательным."
+
+    if v > 1000:
+        return f"⚠️ {name}: слишком большое значение. Проверьте ввод."
+
+    return None
+
 
 # ============== Calculation logic ==============
 def months_between_precise(start_date: date, end_date: date) -> int:
@@ -654,8 +686,32 @@ async def main_handler(msg: Message):
 
         # --- CALCULATION HERE ---
         d = USER_DATA[uid]
+
+        # 🔒 Проверка дат
+        err = validate_dates(d["d1"], d["d2"])
+        if err:
+            USER_STATE[uid] = None
+            USER_DATA[uid] = {}
+            await msg.answer(err, reply_markup=main_menu(uid))
+            return
         
-        res = calculate_compensation( d["d1"], d["d2"], d["used_work"], d["used_cal"], d["prog_old"], d["prog_new"], d["bs_old"], d["bs_new"] )
+        try:
+            res = calculate_compensation(
+                d["d1"], d["d2"],
+                d["used_work"], d["used_cal"],
+                d["prog_old"], d["prog_new"],
+                d["bs_old"], d["bs_new"]
+            )
+        except Exception as e:
+            USER_STATE[uid] = None
+            USER_DATA[uid] = {}
+            await msg.answer(
+                "❌ Произошла ошибка при расчёте.\n"
+                "Проверьте данные и попробуйте снова.",
+                reply_markup=main_menu(uid)
+            )
+            print("CALC ERROR:", e)
+            return
         entry = {
             "d1": d["d1"], "d2": d["d2"], "used_work": d["used_work"],
             "used_cal": d["used_cal"],
@@ -665,6 +721,23 @@ async def main_handler(msg: Message):
             "ts": datetime.utcnow().isoformat()
         }
         save_history_item(entry)
+
+        checks = [
+            (d["used_work"], "Использованные рабочие дни"),
+            (d["used_cal"], "Использованные календарные дни"),
+            (d["prog_old"], "Прогул (старый период)"),
+            (d["prog_new"], "Прогул (новый период)"),
+            (d["bs_old"], "БС (старый период)"),
+            (d["bs_new"], "БС (новый период)")
+        ]
+
+        for value, label in checks:
+            err = validate_days(value, label)
+            if err:
+                USER_STATE[uid] = None
+                USER_DATA[uid] = {}
+                await msg.answer(err, reply_markup=main_menu(uid))
+                return
         
         # Подробные формулы
         old = res["old"]
@@ -693,6 +766,12 @@ async def main_handler(msg: Message):
         lines.append(f"Начислено:         {new['rounded']} × 1.75 = {new['result']}")
         lines.append("")
 
+        # ===== ИТОГ =====
+        # 🔒 Финальная защита компенсации
+        final_days = round_half_up(total_after_used)
+        if final_days < 0:
+            final_days = 0
+            
         lines.append("[ ИТОГ ]")
         lines.append(f"Всего:             {total_accrued:.2f} - {used_total} = {total_after_used:.2f}")
         lines.append(f"Компенсация:       {round_half_up(total_after_used)}")
